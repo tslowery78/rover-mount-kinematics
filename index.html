@@ -54,35 +54,47 @@
 </head>
 <body>
 <header>
-  <h1>Kinematic vs Overconstrained: <span>6 rigid joints on a rover mount</span></h1>
-  <div class="sub">Drag the model to orbit it. Click a joint to delete it, click again to add it back. Each of the 6 real connections reacts up to <b>6 components</b> (3 forces + 3 moments) — not 1 axis like a pin-ended rod. The right panel solves an actual 6×6 stiffness system for whatever combination you build, live.</div>
+  <h1>Kinematic vs Overconstrained: <span>build your own 6-DOF rover mount</span></h1>
+  <div class="sub">Drag the model to orbit it. Click a joint to select and edit it below — every one of the 6 slots can be a <b>different</b> constraint type and orientation, just like a real 3-2-1 fixture mixes flat contacts, a V-groove, and a point. The right panel solves an actual 6×6 stiffness system for whatever combination you build, live.</div>
 </header>
 
 <div class="wrap">
   <div class="story">
-    Corrected model: the Starship↔rover release interface has <b>6 locations</b>, and each one is a rigid, moment-carrying joint (a clamped separation-nut cup, not a pin-ended strut). A single fully-rigid joint already reacts all <b>6 degrees of freedom</b> of the rover — so six of them is not "just enough," it's <b>30 redundant reaction components</b> by construction (36 provided vs. 6 needed). That overconstraint is deliberate: you want 6 load paths for strength and fault tolerance, not because kinematics requires it. The cost is that any thermal growth or machining mismatch at one joint has nowhere geometrically consistent to go — it shows up as real preload, unless somewhere in the stack there's dedicated flexibility to absorb it. Switch the joint type below — pin, shear pin, ball, clevis/hinge, or fully rigid, the same archetypes you'd pick as CROD/CBUSH/revolute/RBE2 elements in Nastran — to see the redundancy count change, then use the <b>lander-side cup compliance</b> slider to see how local flexibility — not fewer joints — is what actually relieves the self-stress. That's the real design lever you used: compliance on the lander side, not in the release joint.
+    Corrected model: earlier versions forced all 6 locations to be the <b>same</b> joint type — which can only ever land on "trivially exact with 1 rigid joint," degenerate, or overconstrained. Real kinematic mounts (a Kelvin clamp, a machine-shop 3-2-1 fixture) get to exactly 6 constraints by mixing <b>different</b> contact types and orientations: e.g. <b>3 flat contacts</b> (1 DOF each, defining a plane) + <b>1 V-groove</b> (2 DOF, defining a line) + <b>1 point</b> (1 DOF, killing the last rotation) = 3+2+1 = 6, exactly. Hit the <b>"Classic 3-2-1 (exact)"</b> preset to see a real, non-trivial 6-DOF-exact solution, then edit any joint's type/orientation yourself and watch the classification update live. Once you've got something exact or overconstrained, use the tolerance + compliance controls to see where self-stress shows up and how local flexibility relieves it.
   </div>
 
   <div class="layout">
     <div class="stage">
       <canvas id="c" width="900" height="460"></canvas>
-      <div class="hint">drag = orbit · scroll = zoom · click joint = remove/add</div>
+      <div class="hint">drag = orbit · scroll = zoom · click joint = select it below</div>
     </div>
 
     <div class="right">
       <div class="panel">
-        <h3>Joint type (what each connection reacts)</h3>
+        <h3>Build the mount</h3>
         <div class="presetrow">
-          <button class="preset" data-type="pin">Pin (1 DOF)<br><span style="font-weight:400;opacity:.7">axial rod end</span></button>
-          <button class="preset" data-type="shear">Shear pin (2 DOF)<br><span style="font-weight:400;opacity:.7">transverse only, no axial</span></button>
-          <button class="preset" data-type="ball">Ball (3 DOF)<br><span style="font-weight:400;opacity:.7">pinned, no moment</span></button>
-          <button class="preset" data-type="clevis">Clevis (5 DOF)<br><span style="font-weight:400;opacity:.7">hinge, 1 free rotation</span></button>
-          <button class="preset active" data-type="rigid">Rigid (6 DOF)<br><span style="font-weight:400;opacity:.7">bolted/clamped</span></button>
+          <button class="preset" data-preset="321">Classic 3-2-1<br><span style="font-weight:400;opacity:.7">exact, non-trivial</span></button>
+          <button class="preset" data-preset="all-rigid">All rigid<br><span style="font-weight:400;opacity:.7">overconstrained</span></button>
+          <button class="preset" data-preset="all-pin">All pin<br><span style="font-weight:400;opacity:.7">degenerate</span></button>
+          <button class="preset" data-preset="clear">Clear all<br><span style="font-weight:400;opacity:.7">start from scratch</span></button>
         </div>
-        <label class="small">Number of joints: <span id="njointsval">6</span></label>
-        <input type="range" id="njoints" min="1" max="8" step="1" value="6">
         <div id="classify" style="margin-top:8px;"></div>
-        <div class="sandbox-note">Changing type or count rebuilds a fresh layout. Click individual joints in the view to explore any combination — classification updates live.</div>
+        <div class="sandbox-note">Presets set all 6 slots at once. Click a joint in the view (or use the editor below) to change one slot at a time — classification updates live.</div>
+      </div>
+
+      <div class="panel">
+        <h3 id="editTitle">Editing Joint #1</h3>
+        <label class="small">Type</label>
+        <select id="editType">
+          <option value="pin">Pin (1 DOF) — flat/point contact</option>
+          <option value="shear">Shear pin (2 DOF) — V-groove/dowel</option>
+          <option value="ball">Ball (3 DOF) — pinned, no moment</option>
+          <option value="clevis">Clevis (5 DOF) — hinge, 1 free rotation</option>
+          <option value="rigid">Rigid (6 DOF) — bolted/clamped</option>
+        </select>
+        <label class="small" id="editAxisLabel">Reacts along</label>
+        <select id="editAxis"></select>
+        <button class="preset" id="editRemove" style="width:100%;margin-top:10px;">Remove this joint</button>
       </div>
 
       <div class="panel">
@@ -117,7 +129,7 @@
 </div>
 
 <footer>
-  Model: N joints evenly spaced on a rover ring, each directly above a matching lander point. Pin = 1 reaction row (axial, vertical). Ball = 3 rows (vertical + local radial + local tangential force). Rigid = ball's 3 force rows plus 3 pure-moment rows about the same 3 local axes — a full 6×6 reaction block per joint, i.e. an RBE2-style rigid connection rather than a CROD pin. Global stiffness K = Σ kᵢ·rowᵢ⊗rowᵢ solved directly (Gaussian elimination, no canned answers) for an applied lunar-gravity wrench and for an imposed length-error vector at the selected joint/axis. Translational stiffness ≈ steel ⌀10mm bolt/rod; rotational stiffness is a representative bolted-flange value (both order-of-magnitude, not a specific hardware spec). Rover assumed 1200 kg, lunar g = 1.62 m/s².
+  Model: 6 joint slots evenly spaced on a rover ring, each directly above a matching lander point, each independently configurable. Pin reacts 1 translation axis (flat/point contact). Shear pin reacts the 2 axes NOT chosen (V-groove/dowel, free along its own axis). Ball reacts all 3 translations, no moment. Clevis reacts all 3 translations plus 2 of 3 moments (free to rotate about the chosen hinge axis). Rigid reacts all 6. Global stiffness K = Σ kᵢ·rowᵢ⊗rowᵢ, each row a screw-theory constraint [â, r̂×â] (or [0, n̂] for a pure moment), solved directly (Gaussian elimination, no canned answers) for an applied lunar-gravity wrench and for an imposed length-error vector at the selected joint/axis. Translational stiffness ≈ steel ⌀10mm bolt/rod; rotational stiffness is a representative bolted-flange value (both order-of-magnitude, not a specific hardware spec). Rover assumed 1200 kg, lunar g = 1.62 m/s².
 </footer>
 
 <script>
@@ -176,12 +188,18 @@
   const ROVER_MASS = 1200; // kg
   const G_MOON = 1.62; // m/s^2
 
-  let jointType = 'rigid'; // 'pin' | 'ball' | 'rigid'
+  const ALL_AXES = ['vertical','radial','tangential'];
   let nJoints = 6;
   let joints = buildJoints(nJoints);
+  // per-joint config, independent of position: type + orientation
+  let jointCfg = {}; // id -> {type, axis}  (axis meaning depends on type, see AXIS_ROLE below)
+  function defaultCfg(id){ return {type:'rigid', axis:'vertical'}; }
+  joints.forEach(j=> jointCfg[j.id]=defaultCfg(j.id));
+
   let removed = new Set();
   let tolJoint = 0;
-  let tolAxis = 'vertical'; // 'vertical' | 'radial' | 'tangential'
+  let tolAxis = 'vertical';
+  let selectedJoint = 0; // joint currently shown in the per-joint editor
 
   function activeJoints(){ return joints.filter(j=>!removed.has(j.id)); }
 
@@ -192,41 +210,82 @@
     return {radial, tangential, vertical};
   }
 
-  // Real joint archetypes (Nastran-flavored): forceAxes = translations reacted,
-  // momentAxes = rotations reacted. dof = forceAxes.length + momentAxes.length.
-  const JOINT_DEFS = {
-    pin:    { forceAxes:['vertical'],                       momentAxes:[] },                         // CROD / rod-end bearing
-    shear:  { forceAxes:['radial','tangential'],            momentAxes:[] },                         // dowel/shear pin, axially free
-    ball:   { forceAxes:['vertical','radial','tangential'], momentAxes:[] },                         // CBUSH translation-only
-    clevis: { forceAxes:['vertical','radial','tangential'], momentAxes:['radial','vertical'] },      // pin joint, free to rotate about tangential (hinge) axis
-    rigid:  { forceAxes:['vertical','radial','tangential'], momentAxes:['radial','tangential','vertical'] } // RBE2 / bolted
-  };
-  function axesForType(type){ return JOINT_DEFS[type].forceAxes; }
-  function dofCountForType(type){ const d=JOINT_DEFS[type]; return d.forceAxes.length+d.momentAxes.length; }
+  // AXIS_ROLE explains what the "axis" field means per type:
+  //  pin:    axis = the single direction reacted (a flat/point contact, normal = axis)
+  //  shear:  axis = the direction left FREE (a V-groove/dowel — reacts the other two)
+  //  clevis: axis = the FREE rotation axis (hinge) — reacts all translation + the other two moments
+  //  ball, rigid: axis unused (fully symmetric in translation)
+  function typeLabel(type){
+    return {pin:'Pin (1 DOF)', shear:'Shear pin (2 DOF)', ball:'Ball (3 DOF)', clevis:'Clevis (5 DOF)', rigid:'Rigid (6 DOF)'}[type];
+  }
+  function dofCountForType(type){
+    return {pin:1, shear:2, ball:3, clevis:5, rigid:6}[type];
+  }
+  // force axes actually reacted, given type+axis (used for tolerance-axis dropdown & rendering)
+  function forceAxesFor(type, axis){
+    if(type==='pin') return [axis];
+    if(type==='shear') return ALL_AXES.filter(a=>a!==axis);
+    return ALL_AXES; // ball, clevis, rigid all react full translation
+  }
+  function momentAxesFor(type, axis){
+    if(type==='clevis') return ALL_AXES.filter(a=>a!==axis);
+    if(type==='rigid') return ALL_AXES;
+    return [];
+  }
 
   // build reaction rows for one joint: {row:[6], kind:'force'|'moment', jointId, axis, kNominal}
-  function jointRows(j, type){
+  function jointRows(j){
+    const cfg = jointCfg[j.id];
     const {radial, tangential, vertical} = localFrame(j.theta);
     const dirs = {radial, tangential, vertical};
     const r = j.apex;
-    const def = JOINT_DEFS[type];
     const rows=[];
-    def.forceAxes.forEach(axisName=>{
+    forceAxesFor(cfg.type, cfg.axis).forEach(axisName=>{
       const a = dirs[axisName];
       const m = cross(r,a);
       rows.push({row:[a[0],a[1],a[2],m[0],m[1],m[2]], kind:'force', jointId:j.id, axis:axisName, kNominal:K_TRANS});
     });
-    def.momentAxes.forEach(axisName=>{
+    momentAxesFor(cfg.type, cfg.axis).forEach(axisName=>{
       const a=dirs[axisName];
       rows.push({row:[0,0,0,a[0],a[1],a[2]], kind:'moment', jointId:j.id, axis:axisName, kNominal:K_ROT});
     });
     return rows;
   }
 
-  function assemble(active, type){
+  function assemble(active){
     let rows=[];
-    active.forEach(j=> rows=rows.concat(jointRows(j,type)));
+    active.forEach(j=> rows=rows.concat(jointRows(j)));
     return rows;
+  }
+
+  // ---------- presets ----------
+  function applyPreset(name){
+    if(name==='all-rigid'){
+      nJoints=6; joints=buildJoints(nJoints); jointCfg={};
+      joints.forEach(j=> jointCfg[j.id]={type:'rigid',axis:'vertical'});
+      removed=new Set();
+    } else if(name==='all-pin'){
+      nJoints=6; joints=buildJoints(nJoints); jointCfg={};
+      joints.forEach(j=> jointCfg[j.id]={type:'pin',axis:'vertical'});
+      removed=new Set();
+    } else if(name==='321'){
+      // classic 3-2-1 kinematic fixture: 3 flat contacts (plane) + 1 V-groove (line) + 1 point
+      nJoints=6; joints=buildJoints(nJoints); jointCfg={};
+      joints.forEach(j=> jointCfg[j.id]={type:'pin',axis:'vertical'});
+      // joints 0,2,4 (0,120,240 deg): plane — 3 vertical pins (default above)
+      // joint 1 (60 deg): V-groove — shear pin free along vertical (reacts radial+tangential)
+      jointCfg[1] = {type:'shear', axis:'vertical'};
+      // joint 3 (180 deg): single point resisting the last DOF (yaw) — pin along tangential
+      jointCfg[3] = {type:'pin', axis:'tangential'};
+      // remove the unused slots (5th, 6th) — only 5 contacts needed for 3+2+1=6
+      removed = new Set([5]);
+      // joint id 0? keep 0,2,4 default vertical pins; joint 5 removed
+    } else if(name==='clear'){
+      nJoints=6; joints=buildJoints(nJoints); jointCfg={};
+      joints.forEach(j=> jointCfg[j.id]={type:'pin',axis:'vertical'});
+      removed = new Set(joints.map(j=>j.id));
+    }
+    selectedJoint = activeJoints().length? activeJoints()[0].id : 0;
   }
 
   function buildKg(rowObjs, kOverride){
@@ -241,7 +300,7 @@
 
   function computeAll(){
     const active = activeJoints();
-    const rowObjs = assemble(active, jointType);
+    const rowObjs = assemble(active);
     const nRows = rowObjs.length;
     const compliance = parseFloat(document.getElementById('compliance').value)/100;
 
@@ -296,50 +355,84 @@
   const tolLabel=document.getElementById('tolval');
   const jointSel=document.getElementById('jointSel');
   const axisSel=document.getElementById('axisSel');
-  const njointsSlider=document.getElementById('njoints');
-  const njointsLabel=document.getElementById('njointsval');
   const complianceSlider=document.getElementById('compliance');
   const complianceLabel=document.getElementById('compval');
+  const editType=document.getElementById('editType');
+  const editAxis=document.getElementById('editAxis');
+  const editAxisLabel=document.getElementById('editAxisLabel');
+  const editTitle=document.getElementById('editTitle');
+  const editRemoveBtn=document.getElementById('editRemove');
+
+  const AXIS_ROLE_LABEL = {pin:'Reacts along', shear:'Free (unreacted) along', clevis:'Free to rotate about'};
 
   function refreshSelects(){
     const active=activeJoints();
     jointSel.innerHTML='';
     active.forEach(j=>{
       const opt=document.createElement('option');
-      opt.value=j.id; opt.textContent=`Joint #${j.id+1}`;
+      opt.value=j.id; opt.textContent=`Joint #${j.id+1} (${typeLabel(jointCfg[j.id].type)})`;
       jointSel.appendChild(opt);
     });
     if(!active.find(j=>j.id===tolJoint)) tolJoint = active.length? active[0].id : 0;
     jointSel.value=tolJoint;
 
-    const axes=axesForType(jointType);
+    const tolCfg = jointCfg[tolJoint];
+    const axes = tolCfg ? forceAxesFor(tolCfg.type, tolCfg.axis) : [];
     axisSel.innerHTML='';
     axes.forEach(ax=>{
       const opt=document.createElement('option');
       opt.value=ax; opt.textContent=ax[0].toUpperCase()+ax.slice(1);
       axisSel.appendChild(opt);
     });
-    if(!axes.includes(tolAxis)) tolAxis=axes[0];
-    axisSel.value=tolAxis;
+    if(!axes.includes(tolAxis)) tolAxis=axes.length?axes[0]:'vertical';
+    if(axes.length) axisSel.value=tolAxis;
+
+    // per-joint editor
+    if(!joints.find(j=>j.id===selectedJoint)) selectedJoint=joints[0].id;
+    const cfg=jointCfg[selectedJoint];
+    const isRemoved=removed.has(selectedJoint);
+    editTitle.textContent = `Editing Joint #${selectedJoint+1}`;
+    editType.value=cfg.type;
+    if(cfg.type==='ball' || cfg.type==='rigid'){
+      editAxisLabel.style.display='none';
+      editAxis.style.display='none';
+    } else {
+      editAxisLabel.style.display='';
+      editAxis.style.display='';
+      editAxisLabel.textContent = AXIS_ROLE_LABEL[cfg.type];
+      editAxis.innerHTML='';
+      ALL_AXES.forEach(ax=>{
+        const opt=document.createElement('option');
+        opt.value=ax; opt.textContent=ax[0].toUpperCase()+ax.slice(1);
+        editAxis.appendChild(opt);
+      });
+      editAxis.value=cfg.axis;
+    }
+    editRemoveBtn.textContent = isRemoved? 'Restore this joint' : 'Remove this joint';
   }
 
   jointSel.addEventListener('change', ()=>{ tolJoint=parseInt(jointSel.value); update(); });
   axisSel.addEventListener('change', ()=>{ tolAxis=axisSel.value; update(); });
   tolSlider.addEventListener('input', ()=>{ tolLabel.textContent=parseFloat(tolSlider.value).toFixed(2)+' mm'; update(); });
   complianceSlider.addEventListener('input', ()=>{ complianceLabel.textContent=complianceSlider.value+'%'; update(); });
-  njointsSlider.addEventListener('input', ()=>{
-    nJoints=parseInt(njointsSlider.value);
-    njointsLabel.textContent=nJoints;
-    joints=buildJoints(nJoints);
-    removed=new Set();
+
+  editType.addEventListener('change', ()=>{
+    jointCfg[selectedJoint].type = editType.value;
+    if(!jointCfg[selectedJoint].axis) jointCfg[selectedJoint].axis='vertical';
+    update();
+  });
+  editAxis.addEventListener('change', ()=>{
+    jointCfg[selectedJoint].axis = editAxis.value;
+    update();
+  });
+  editRemoveBtn.addEventListener('click', ()=>{
+    if(removed.has(selectedJoint)) removed.delete(selectedJoint); else removed.add(selectedJoint);
     update();
   });
 
   document.querySelectorAll('button.preset').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      document.querySelectorAll('button.preset').forEach(b=>b.classList.remove('active'));
-      btn.classList.add('active');
-      jointType=btn.dataset.type;
+      applyPreset(btn.dataset.preset);
       update();
     });
   });
@@ -453,6 +546,8 @@
     hitboxes=[];
     items.forEach(it=>{
       const {j,pB,pA,isRemoved,f}=it;
+      const cfg = jointCfg[j.id];
+      const isSelected = j.id===selectedJoint;
       ctx.beginPath();
       ctx.moveTo(pB.x,pB.y); ctx.lineTo(pA.x,pA.y);
       if(isRemoved){
@@ -460,13 +555,18 @@
       } else {
         ctx.setLineDash([]);
         ctx.strokeStyle = colorForForce(f, maxRef);
-        ctx.lineWidth = j.id===tolJoint ? 6 : 4;
+        ctx.lineWidth = isSelected ? 6 : (j.id===tolJoint ? 5 : 4);
       }
       ctx.stroke();
       ctx.setLineDash([]);
+      if(isSelected){
+        ctx.beginPath(); ctx.moveTo(pB.x,pB.y); ctx.lineTo(pA.x,pA.y);
+        ctx.strokeStyle='#5fd0ff'; ctx.lineWidth=1; ctx.globalAlpha=0.6;
+        ctx.stroke(); ctx.globalAlpha=1;
+      }
 
       // endpoints — apex marker sized by reacted DOF count
-      const dofCount = isRemoved? 0 : dofCountForType(jointType);
+      const dofCount = isRemoved? 0 : dofCountForType(cfg.type);
       [pB,pA].forEach((p,idx)=>{
         ctx.beginPath(); ctx.arc(p.x,p.y, idx===1?5+dofCount*0.4:4, 0,7);
         ctx.fillStyle = isRemoved? '#2a3542' : '#e8eef5';
@@ -476,8 +576,9 @@
       const midx=(pB.x+pA.x)/2, midy=(pB.y+pA.y)/2;
       hitboxes.push({id:j.id, x:midx, y:midy, isRemoved});
 
+      const tag = isRemoved? '' : ` ${typeLabel(cfg.type).split(' ')[0]}${cfg.type==='pin'||cfg.type==='shear'||cfg.type==='clevis' ? '/'+cfg.axis[0].toUpperCase() : ''}`;
       ctx.font='11px monospace'; ctx.fillStyle= j.id===tolJoint? '#5fd0ff':'#8fa3b8';
-      ctx.fillText(`#${j.id+1}${j.id===tolJoint?' ▲':''}`, midx+8, midy-8);
+      ctx.fillText(`#${j.id+1}${tag}${j.id===tolJoint?' ▲':''}`, midx+8, midy-8);
     });
 
     // labels
@@ -495,11 +596,12 @@
       if(d<bestD){ bestD=d; best=h; }
     });
     if(best){
-      if(best.isRemoved) removed.delete(best.id); else removed.add(best.id);
+      selectedJoint = best.id;
       update();
     }
   });
 
+  applyPreset('321');
   resize();
   update();
 })();
