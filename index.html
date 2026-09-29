@@ -46,6 +46,10 @@
   .badge.warn{background:rgba(250,204,21,.15);color:var(--warn);}
   .badge.bad{background:rgba(248,113,113,.15);color:var(--bad);}
   .sandbox-note{font-size:0.78rem;color:var(--dim);margin-top:8px;}
+  .solution-item{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-top:6px;cursor:pointer;font-size:0.78rem;transition:.15s;}
+  .solution-item:hover{border-color:var(--accent);}
+  .solution-item .k{color:var(--good);font-weight:700;margin-right:6px;}
+  .solution-item .desc{color:var(--dim);font-family:var(--mono);}
   .legend{display:flex;gap:14px;font-size:0.72rem;color:var(--dim);margin-top:8px;flex-wrap:wrap;}
   .legend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px;}
   footer{max-width:1100px;margin:0 auto;padding:10px 24px 40px;color:var(--dim);font-size:0.78rem;}
@@ -80,6 +84,13 @@
         </div>
         <div id="classify" style="margin-top:8px;"></div>
         <div class="sandbox-note">Presets set all 6 slots at once. Click a joint in the view (or use the editor below) to change one slot at a time — classification updates live.</div>
+      </div>
+
+      <div class="panel">
+        <h3>Solve for statically-determinate layouts</h3>
+        <div class="sandbox-note" style="margin-top:0;">Exhaustively searches every combination of joint type, orientation, and which of the 6 slots are active, then keeps only the ones whose 6×6 stiffness matrix is actually full-rank (verified, not guessed). Fewest joints shown first.</div>
+        <button class="preset" id="solveBtn" style="width:100%;margin-top:10px;">Find exact (6/6) solutions</button>
+        <div id="solutionList" style="margin-top:10px;"></div>
       </div>
 
       <div class="panel">
@@ -234,8 +245,8 @@
   }
 
   // build reaction rows for one joint: {row:[6], kind:'force'|'moment', jointId, axis, kNominal}
-  function jointRows(j){
-    const cfg = jointCfg[j.id];
+  function jointRows(j, cfgOverride){
+    const cfg = cfgOverride || jointCfg[j.id];
     const {radial, tangential, vertical} = localFrame(j.theta);
     const dirs = {radial, tangential, vertical};
     const r = j.apex;
@@ -256,6 +267,89 @@
     let rows=[];
     active.forEach(j=> rows=rows.concat(jointRows(j)));
     return rows;
+  }
+
+  // ---------- solver: exhaustively search for statically-determinate (rank-6) layouts ----------
+  // Every candidate reaction a single slot could hold, with its DOF cost.
+  const CANDIDATES = [
+    {type:'pin',    axis:'vertical',   dof:1},
+    {type:'pin',    axis:'radial',     dof:1},
+    {type:'pin',    axis:'tangential', dof:1},
+    {type:'shear',  axis:'vertical',   dof:2},
+    {type:'shear',  axis:'radial',     dof:2},
+    {type:'shear',  axis:'tangential', dof:2},
+    {type:'ball',   axis:'vertical',   dof:3},
+    {type:'clevis', axis:'vertical',   dof:5},
+    {type:'clevis', axis:'radial',     dof:5},
+    {type:'clevis', axis:'tangential', dof:5},
+    {type:'rigid',  axis:'vertical',   dof:6},
+  ];
+
+  function testRankSix(cfgMap, activeIds){
+    let rows=[];
+    activeIds.forEach(id=>{
+      const j = joints.find(jj=>jj.id===id);
+      rows = rows.concat(jointRows(j, cfgMap[id]));
+    });
+    if(rows.length!==6) return false;
+    const Kg = buildKg(rows);
+    const test = solve6(Kg, [0,-1,0,0,0,0]);
+    return !test.singular;
+  }
+
+  // DFS over the 6 fixed slots; each slot is either removed or holds one CANDIDATES[] option.
+  // "remove" is tried first at every slot, so the search naturally surfaces low-joint-count
+  // (most "elegant") solutions before high-joint-count ones.
+  function findExactSolutions(maxResults){
+    const results=[];
+    const choice=new Array(6).fill(-1);
+    function dfs(i, sum){
+      if(results.length>=maxResults || sum>6) return;
+      if(i===6){
+        if(sum===6){
+          const cfgMap={}, activeIds=[];
+          joints.forEach((j,idx)=>{
+            if(choice[idx]===-1) return;
+            const c=CANDIDATES[choice[idx]];
+            cfgMap[j.id]={type:c.type, axis:c.axis};
+            activeIds.push(j.id);
+          });
+          if(testRankSix(cfgMap, activeIds)){
+            results.push({cfgMap, activeIds, k:activeIds.length});
+          }
+        }
+        return;
+      }
+      choice[i]=-1; dfs(i+1, sum);
+      for(let o=0;o<CANDIDATES.length;o++){
+        choice[i]=o;
+        dfs(i+1, sum+CANDIDATES[o].dof);
+      }
+      choice[i]=-1;
+    }
+    dfs(0,0);
+    return results;
+  }
+
+  // pick a small, diverse curated set (fewest joints first) for display
+  function curatedSolutions(){
+    const all = findExactSolutions(400);
+    const byK = {};
+    all.forEach(sol=>{
+      if(!byK[sol.k]) byK[sol.k]=[];
+      if(byK[sol.k].length<3) byK[sol.k].push(sol); // keep up to 3 examples per joint-count
+    });
+    const out=[];
+    Object.keys(byK).sort((a,b)=>a-b).forEach(k=> out.push(...byK[k]));
+    return out.slice(0,10);
+  }
+
+  function describeSolution(sol){
+    return sol.activeIds.map(id=>{
+      const c=sol.cfgMap[id];
+      const axisTxt = (c.type==='ball'||c.type==='rigid') ? '' : `/${c.axis[0].toUpperCase()}`;
+      return `#${id+1} ${typeLabel(c.type).split(' ')[0]}${axisTxt}`;
+    }).join(', ');
   }
 
   // ---------- presets ----------
@@ -430,11 +524,42 @@
     update();
   });
 
-  document.querySelectorAll('button.preset').forEach(btn=>{
+  document.querySelectorAll('button.preset[data-preset]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       applyPreset(btn.dataset.preset);
       update();
     });
+  });
+
+  function applySolution(sol){
+    jointCfg={};
+    joints.forEach(j=> jointCfg[j.id]={type:'pin',axis:'vertical'}); // default for removed slots
+    sol.activeIds.forEach(id=> jointCfg[id]=sol.cfgMap[id]);
+    removed = new Set(joints.map(j=>j.id).filter(id=>!sol.activeIds.includes(id)));
+    selectedJoint = sol.activeIds[0];
+    update();
+  }
+
+  document.getElementById('solveBtn').addEventListener('click', ()=>{
+    const btn=document.getElementById('solveBtn');
+    btn.textContent='Searching…';
+    setTimeout(()=>{
+      const sols = curatedSolutions();
+      const list=document.getElementById('solutionList');
+      list.innerHTML='';
+      if(sols.length===0){
+        list.innerHTML = '<div class="sandbox-note">No exact solutions found.</div>';
+      } else {
+        sols.forEach(sol=>{
+          const div=document.createElement('div');
+          div.className='solution-item';
+          div.innerHTML = `<span class="k">${sol.k} joint${sol.k>1?'s':''}</span><span class="desc">${describeSolution(sol)}</span>`;
+          div.addEventListener('click', ()=> applySolution(sol));
+          list.appendChild(div);
+        });
+      }
+      btn.textContent='Find exact (6/6) solutions';
+    }, 10);
   });
 
   let lastResult=null;
