@@ -599,7 +599,7 @@
   canvas.addEventListener('pointermove', e=>{
     if(!dragging) return;
     camYaw += (e.clientX-lastX)*0.008;
-    camPitch = Math.max(-1.4, Math.min(1.4, camPitch + (e.clientY-lastY)*0.008));
+    camPitch = Math.max(-1.4, Math.min(1.4, camPitch - (e.clientY-lastY)*0.008));
     lastX=e.clientX; lastY=e.clientY;
     draw();
   });
