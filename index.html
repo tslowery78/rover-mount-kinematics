@@ -60,7 +60,7 @@
 
 <div class="wrap">
   <div class="story">
-    Corrected model: the Starship↔rover release interface has <b>6 locations</b>, and each one is a rigid, moment-carrying joint (a clamped separation-nut cup, not a pin-ended strut). A single fully-rigid joint already reacts all <b>6 degrees of freedom</b> of the rover — so six of them is not "just enough," it's <b>30 redundant reaction components</b> by construction (36 provided vs. 6 needed). That overconstraint is deliberate: you want 6 load paths for strength and fault tolerance, not because kinematics requires it. The cost is that any thermal growth or machining mismatch at one joint has nowhere geometrically consistent to go — it shows up as real preload, unless somewhere in the stack there's dedicated flexibility to absorb it. Switch the joint type below (pin → ball → rigid) to see the redundancy count explode, then use the <b>lander-side cup compliance</b> slider to see how local flexibility — not fewer joints — is what actually relieves the self-stress. That's the real design lever you used: compliance on the lander side, not in the release joint.
+    Corrected model: the Starship↔rover release interface has <b>6 locations</b>, and each one is a rigid, moment-carrying joint (a clamped separation-nut cup, not a pin-ended strut). A single fully-rigid joint already reacts all <b>6 degrees of freedom</b> of the rover — so six of them is not "just enough," it's <b>30 redundant reaction components</b> by construction (36 provided vs. 6 needed). That overconstraint is deliberate: you want 6 load paths for strength and fault tolerance, not because kinematics requires it. The cost is that any thermal growth or machining mismatch at one joint has nowhere geometrically consistent to go — it shows up as real preload, unless somewhere in the stack there's dedicated flexibility to absorb it. Switch the joint type below — pin, shear pin, ball, clevis/hinge, or fully rigid, the same archetypes you'd pick as CROD/CBUSH/revolute/RBE2 elements in Nastran — to see the redundancy count change, then use the <b>lander-side cup compliance</b> slider to see how local flexibility — not fewer joints — is what actually relieves the self-stress. That's the real design lever you used: compliance on the lander side, not in the release joint.
   </div>
 
   <div class="layout">
@@ -74,7 +74,9 @@
         <h3>Joint type (what each connection reacts)</h3>
         <div class="presetrow">
           <button class="preset" data-type="pin">Pin (1 DOF)<br><span style="font-weight:400;opacity:.7">axial rod end</span></button>
+          <button class="preset" data-type="shear">Shear pin (2 DOF)<br><span style="font-weight:400;opacity:.7">transverse only, no axial</span></button>
           <button class="preset" data-type="ball">Ball (3 DOF)<br><span style="font-weight:400;opacity:.7">pinned, no moment</span></button>
+          <button class="preset" data-type="clevis">Clevis (5 DOF)<br><span style="font-weight:400;opacity:.7">hinge, 1 free rotation</span></button>
           <button class="preset active" data-type="rigid">Rigid (6 DOF)<br><span style="font-weight:400;opacity:.7">bolted/clamped</span></button>
         </div>
         <label class="small">Number of joints: <span id="njointsval">6</span></label>
@@ -190,28 +192,34 @@
     return {radial, tangential, vertical};
   }
 
-  function axesForType(type){
-    if(type==='pin') return ['vertical'];
-    return ['vertical','radial','tangential']; // ball & rigid react full translation
-  }
+  // Real joint archetypes (Nastran-flavored): forceAxes = translations reacted,
+  // momentAxes = rotations reacted. dof = forceAxes.length + momentAxes.length.
+  const JOINT_DEFS = {
+    pin:    { forceAxes:['vertical'],                       momentAxes:[] },                         // CROD / rod-end bearing
+    shear:  { forceAxes:['radial','tangential'],            momentAxes:[] },                         // dowel/shear pin, axially free
+    ball:   { forceAxes:['vertical','radial','tangential'], momentAxes:[] },                         // CBUSH translation-only
+    clevis: { forceAxes:['vertical','radial','tangential'], momentAxes:['radial','vertical'] },      // pin joint, free to rotate about tangential (hinge) axis
+    rigid:  { forceAxes:['vertical','radial','tangential'], momentAxes:['radial','tangential','vertical'] } // RBE2 / bolted
+  };
+  function axesForType(type){ return JOINT_DEFS[type].forceAxes; }
+  function dofCountForType(type){ const d=JOINT_DEFS[type]; return d.forceAxes.length+d.momentAxes.length; }
 
   // build reaction rows for one joint: {row:[6], kind:'force'|'moment', jointId, axis, kNominal}
   function jointRows(j, type){
     const {radial, tangential, vertical} = localFrame(j.theta);
     const dirs = {radial, tangential, vertical};
     const r = j.apex;
+    const def = JOINT_DEFS[type];
     const rows=[];
-    axesForType(type).forEach(axisName=>{
+    def.forceAxes.forEach(axisName=>{
       const a = dirs[axisName];
       const m = cross(r,a);
       rows.push({row:[a[0],a[1],a[2],m[0],m[1],m[2]], kind:'force', jointId:j.id, axis:axisName, kNominal:K_TRANS});
     });
-    if(type==='rigid'){
-      ['radial','tangential','vertical'].forEach(axisName=>{
-        const a=dirs[axisName];
-        rows.push({row:[0,0,0,a[0],a[1],a[2]], kind:'moment', jointId:j.id, axis:axisName, kNominal:K_ROT});
-      });
-    }
+    def.momentAxes.forEach(axisName=>{
+      const a=dirs[axisName];
+      rows.push({row:[0,0,0,a[0],a[1],a[2]], kind:'moment', jointId:j.id, axis:axisName, kNominal:K_ROT});
+    });
     return rows;
   }
 
@@ -458,7 +466,7 @@
       ctx.setLineDash([]);
 
       // endpoints — apex marker sized by reacted DOF count
-      const dofCount = isRemoved? 0 : (jointType==='pin'?1:jointType==='ball'?3:6);
+      const dofCount = isRemoved? 0 : dofCountForType(jointType);
       [pB,pA].forEach((p,idx)=>{
         ctx.beginPath(); ctx.arc(p.x,p.y, idx===1?5+dofCount*0.4:4, 0,7);
         ctx.fillStyle = isRemoved? '#2a3542' : '#e8eef5';
