@@ -630,6 +630,71 @@
     return '#f87171';
   }
 
+  // ---------- DOF glyph: a 3-column x up-to-2-row dot grid showing exactly what a joint reacts ----------
+  const AXIS_COLOR = {vertical:'#5fd0ff', radial:'#ffb454', tangential:'#c084fc'};
+  const AXIS_LETTER = {vertical:'V', radial:'R', tangential:'T'};
+  const DOF_COLS = ['vertical','radial','tangential'];
+  const DOT_R=5, DOT_GAP=15, ROW_GAP=14;
+
+  function drawDofGlyph(x, y, type, axis){
+    const forceAxes = forceAxesFor(type, axis);
+    const momentAxes = momentAxesFor(type, axis);
+    const hasMoment = momentAxes.length>0;
+    // backing chip for legibility over the 3D scene
+    const w = DOT_GAP*2 + DOT_R*2 + 6;
+    const h = (hasMoment? ROW_GAP:0) + DOT_R*2 + 6;
+    ctx.fillStyle='rgba(11,15,20,0.72)';
+    ctx.fillRect(x-DOT_R-3, y-DOT_R-3, w, h);
+    DOF_COLS.forEach((c,i)=>{
+      const cx = x + i*DOT_GAP;
+      drawDot(cx, y, AXIS_COLOR[c], forceAxes.includes(c));
+      if(hasMoment) drawDot(cx, y+ROW_GAP, AXIS_COLOR[c], momentAxes.includes(c), true);
+    });
+  }
+  function drawDot(cx, cy, color, filled, isMoment){
+    ctx.beginPath();
+    if(isMoment){
+      // small arc glyph for moments, to read visually distinct from force dots
+      ctx.arc(cx, cy, DOT_R, 0.6, Math.PI*1.7);
+    } else {
+      ctx.arc(cx, cy, DOT_R, 0, Math.PI*2);
+    }
+    ctx.strokeStyle=color; ctx.lineWidth=1.3;
+    if(!filled) ctx.setLineDash([1.5,1.5]);
+    if(filled){ ctx.fillStyle=color; ctx.fill(); }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  function drawLegend(){
+    const x0=14, y0=14, w=196, h=112;
+    ctx.fillStyle='rgba(11,15,20,0.85)';
+    ctx.strokeStyle='#243040'; ctx.lineWidth=1;
+    ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(x0,y0,w,h,8); else ctx.rect(x0,y0,w,h);
+    ctx.fill(); ctx.stroke();
+
+    ctx.font='bold 10px -apple-system,sans-serif'; ctx.fillStyle='#8fa3b8';
+    ctx.fillText('DOF KEY — what each joint reacts', x0+10, y0+16);
+
+    ctx.font='10px -apple-system,sans-serif';
+    DOF_COLS.forEach((c,i)=>{
+      const yy=y0+36+i*16;
+      ctx.beginPath(); ctx.arc(x0+16, yy-3, 4, 0, 7);
+      ctx.fillStyle=AXIS_COLOR[c]; ctx.fill();
+      ctx.fillStyle='#cdd8e3';
+      ctx.fillText(`${AXIS_LETTER[c]} = ${c}`, x0+28, yy);
+    });
+
+    const legendRowY = y0+36+3*16+6;
+    drawDot(x0+16, legendRowY-3, '#8fa3b8', true);
+    ctx.fillStyle='#cdd8e3'; ctx.fillText('reacted', x0+26, legendRowY);
+    drawDot(x0+92, legendRowY-3, '#8fa3b8', false);
+    ctx.fillStyle='#cdd8e3'; ctx.fillText('free', x0+102, legendRowY);
+    ctx.fillStyle='#8fa3b8';
+    ctx.fillText('top row=force · bottom row=moment', x0+10, legendRowY+16);
+  }
+
   function draw(){
     if(!lastResult) return;
     ctx.clearRect(0,0,W,H2);
@@ -701,15 +766,17 @@
       const midx=(pB.x+pA.x)/2, midy=(pB.y+pA.y)/2;
       hitboxes.push({id:j.id, x:midx, y:midy, isRemoved});
 
-      const tag = isRemoved? '' : ` ${typeLabel(cfg.type).split(' ')[0]}${cfg.type==='pin'||cfg.type==='shear'||cfg.type==='clevis' ? '/'+cfg.axis[0].toUpperCase() : ''}`;
-      ctx.font='11px monospace'; ctx.fillStyle= j.id===tolJoint? '#5fd0ff':'#8fa3b8';
-      ctx.fillText(`#${j.id+1}${tag}${j.id===tolJoint?' ▲':''}`, midx+8, midy-8);
+      ctx.font='bold 11px monospace'; ctx.fillStyle= j.id===tolJoint? '#5fd0ff':'#8fa3b8';
+      ctx.fillText(`#${j.id+1}${j.id===tolJoint?' ▲':''}`, midx+8, midy-8);
+      if(!isRemoved) drawDofGlyph(midx+8, midy-24, cfg.type, cfg.axis);
     });
 
     // labels
     ctx.font='12px -apple-system,sans-serif'; ctx.fillStyle='#8fa3b8';
     const laP=project([0,H+0.28,0]); ctx.fillText('ROVER (rigid body)', laP.x-55, laP.y);
     const laL=project([0,-0.22,0]); ctx.fillText('LANDER (fixed)', laL.x-45, laL.y);
+
+    drawLegend();
   }
 
   canvas.addEventListener('click', e=>{
