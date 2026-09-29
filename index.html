@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kinematic vs Overconstrained: The 6-Strut Rover Mount</title>
+<title>Kinematic vs Overconstrained: 6 Rigid Joints on a Rover Mount</title>
 <style>
   :root{
     --bg:#0b0f14; --panel:#121821; --panel2:#0f141b; --line:#243040;
@@ -30,7 +30,7 @@
   .panel + .panel{margin-top:14px;}
   .panel h3{margin:0 0 10px;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--dim);}
   .presetrow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
-  button.preset{flex:1;min-width:80px;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:10px 6px;border-radius:8px;cursor:pointer;font-size:0.82rem;font-weight:600;transition:.15s;}
+  button.preset{flex:1;min-width:80px;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:10px 6px;border-radius:8px;cursor:pointer;font-size:0.82rem;font-weight:600;line-height:1.5;transition:.15s;}
   button.preset:hover{border-color:var(--accent);}
   button.preset.active{background:var(--accent);color:#04202b;border-color:var(--accent);}
   label.small{font-size:0.78rem;color:var(--dim);display:block;margin:10px 0 4px;}
@@ -54,47 +54,54 @@
 </head>
 <body>
 <header>
-  <h1>Kinematic vs Overconstrained: the <span>6-strut rover release mount</span></h1>
-  <div class="sub">Drag the model to orbit it. Click a strut to delete it, click empty space near a ring to add one back. The physics is real — the right panel solves an actual 6×6 stiffness system, not a canned animation.</div>
+  <h1>Kinematic vs Overconstrained: <span>6 rigid joints on a rover mount</span></h1>
+  <div class="sub">Drag the model to orbit it. Click a joint to delete it, click again to add it back. Each of the 6 real connections reacts up to <b>6 components</b> (3 forces + 3 moments) — not 1 axis like a pin-ended rod. The right panel solves an actual 6×6 stiffness system for whatever combination you build, live.</div>
 </header>
 
 <div class="wrap">
   <div class="story">
-    This is the mount problem behind the Starship↔rover 6-DOF release interface: JAXA wants more compliance margin, SpaceX wants fewer/simpler attach points. The instinct is <b>"add more struts, it'll be stiffer and safer."</b>
-    It isn't. A rigid body has exactly <b>6 degrees of freedom</b>. Six struts, each pulling along its own axis, can pin down exactly those 6 DOF with zero redundancy — a <b>kinematic (exactly-constrained) mount</b>. A 7th or 8th strut doesn't add stiffness once the body is already fully constrained; it adds a <b>redundant load path</b> that fights the other struts every time there's a thermal gradient or a tenth-of-a-millimeter manufacturing mismatch. Try the tolerance slider below and watch the preload appear out of nowhere on the 8-strut mount while the 6-strut mount stays at zero.
+    Corrected model: the Starship↔rover release interface has <b>6 locations</b>, and each one is a rigid, moment-carrying joint (a clamped separation-nut cup, not a pin-ended strut). A single fully-rigid joint already reacts all <b>6 degrees of freedom</b> of the rover — so six of them is not "just enough," it's <b>30 redundant reaction components</b> by construction (36 provided vs. 6 needed). That overconstraint is deliberate: you want 6 load paths for strength and fault tolerance, not because kinematics requires it. The cost is that any thermal growth or machining mismatch at one joint has nowhere geometrically consistent to go — it shows up as real preload, unless somewhere in the stack there's dedicated flexibility to absorb it. Switch the joint type below (pin → ball → rigid) to see the redundancy count explode, then use the <b>lander-side cup compliance</b> slider to see how local flexibility — not fewer joints — is what actually relieves the self-stress. That's the real design lever you used: compliance on the lander side, not in the release joint.
   </div>
 
   <div class="layout">
     <div class="stage">
       <canvas id="c" width="900" height="460"></canvas>
-      <div class="hint">drag = orbit · scroll = zoom · click strut = remove/add</div>
+      <div class="hint">drag = orbit · scroll = zoom · click joint = remove/add</div>
     </div>
 
     <div class="right">
       <div class="panel">
-        <h3>Mount configuration</h3>
+        <h3>Joint type (what each connection reacts)</h3>
         <div class="presetrow">
-          <button class="preset" data-n="4">4 struts</button>
-          <button class="preset active" data-n="6">6 struts</button>
-          <button class="preset" data-n="7">7 struts</button>
-          <button class="preset" data-n="8">8 struts</button>
+          <button class="preset" data-type="pin">Pin (1 DOF)<br><span style="font-weight:400;opacity:.7">axial rod end</span></button>
+          <button class="preset" data-type="ball">Ball (3 DOF)<br><span style="font-weight:400;opacity:.7">pinned, no moment</span></button>
+          <button class="preset active" data-type="rigid">Rigid (6 DOF)<br><span style="font-weight:400;opacity:.7">bolted/clamped</span></button>
         </div>
-        <div id="classify"></div>
-        <div class="sandbox-note">Presets rebuild a fresh bipod layout. Click individual struts in the view to explore any combination — the classification updates live.</div>
+        <label class="small">Number of joints: <span id="njointsval">6</span></label>
+        <input type="range" id="njoints" min="1" max="8" step="1" value="6">
+        <div id="classify" style="margin-top:8px;"></div>
+        <div class="sandbox-note">Changing type or count rebuilds a fresh layout. Click individual joints in the view to explore any combination — classification updates live.</div>
       </div>
 
       <div class="panel">
-        <h3>Manufacturing mismatch</h3>
-        <label class="small">Length error on one strut: <span id="tolval">0.00 mm</span></label>
+        <h3>Manufacturing / thermal mismatch</h3>
+        <label class="small">Length error at one joint: <span id="tolval">0.00 mm</span></label>
         <input type="range" id="tol" min="0" max="2" step="0.02" value="0">
-        <label class="small">Which strut gets the error</label>
-        <select id="strutSel"></select>
+        <label class="small">Which joint gets the error</label>
+        <select id="jointSel"></select>
+        <label class="small">Reaction direction</label>
+        <select id="axisSel"></select>
+        <label class="small">Lander-side cup compliance at that joint: <span id="compval">0%</span></label>
+        <input type="range" id="compliance" min="0" max="99" step="1" value="0">
       </div>
 
       <div class="panel">
         <h3>Results (real numbers, not decoration)</h3>
-        <div class="metric"><span class="lbl">Peak self-induced preload</span><span class="val" id="mPreload">0 N</span></div>
-        <div class="metric"><span class="lbl">Peak strut stress (⌀10mm rod)</span><span class="val" id="mStress">0.0 MPa</span></div>
+        <div class="metric"><span class="lbl">Constraint components</span><span class="val" id="mRows">— / 6</span></div>
+        <div class="metric"><span class="lbl">Redundant reaction components</span><span class="val" id="mRedundant">0</span></div>
+        <div class="metric"><span class="lbl">Peak self-induced force</span><span class="val" id="mPreload">0 N</span></div>
+        <div class="metric"><span class="lbl">Peak self-induced moment</span><span class="val" id="mMoment">0 N·m</span></div>
+        <div class="metric"><span class="lbl">Peak equivalent stress (⌀10mm bolt)</span><span class="val" id="mStress">0.0 MPa</span></div>
         <div class="metric"><span class="lbl">Deflection under 1/6-g rover weight</span><span class="val" id="mDefl">— mm</span></div>
         <div class="metric"><span class="lbl">Load path</span><span class="val" id="mPath">statically determinate</span></div>
         <div class="legend">
@@ -108,7 +115,7 @@
 </div>
 
 <footer>
-  Model: 3 (or 4) bipod clusters of axial struts between a lander ring and a rover ring. Each strut = one row of a 6×6 screw-theory constraint Jacobian [â, r̂×â]. Stiffness matrix K = AᵀdiagKᵢA solved directly (Gaussian elimination, no canned answers) for both an applied lunar-gravity wrench and an imposed length-error vector. Rover assumed 1200 kg, lunar g = 1.62 m/s², rod stiffness ≈ steel ⌀10 mm rod at typical strut length.
+  Model: N joints evenly spaced on a rover ring, each directly above a matching lander point. Pin = 1 reaction row (axial, vertical). Ball = 3 rows (vertical + local radial + local tangential force). Rigid = ball's 3 force rows plus 3 pure-moment rows about the same 3 local axes — a full 6×6 reaction block per joint, i.e. an RBE2-style rigid connection rather than a CROD pin. Global stiffness K = Σ kᵢ·rowᵢ⊗rowᵢ solved directly (Gaussian elimination, no canned answers) for an applied lunar-gravity wrench and for an imposed length-error vector at the selected joint/axis. Translational stiffness ≈ steel ⌀10mm bolt/rod; rotational stiffness is a representative bolted-flange value (both order-of-magnitude, not a specific hardware spec). Rover assumed 1200 kg, lunar g = 1.62 m/s².
 </footer>
 
 <script>
@@ -148,142 +155,201 @@
   function unit(a){const n=norm(a); return n<1e-9?[0,0,0]:scl(a,1/n);}
 
   // ---------- geometry ----------
-  const Rrover=1.0, Rlander=1.25, H=1.0; // meters, arbitrary but physically-scaled
-  function bipodStruts(nBipods){
-    const struts=[];
-    for(let i=0;i<nBipods;i++){
-      const theta = (2*Math.PI*i)/nBipods;
+  const Rrover=1.0, Rlander=1.2, H=1.0; // meters, arbitrary but physically-scaled
+
+  function buildJoints(n){
+    const joints=[];
+    for(let i=0;i<n;i++){
+      const theta = (2*Math.PI*i)/n;
       const apex=[Rrover*Math.cos(theta), H, Rrover*Math.sin(theta)];
-      const delta = 0.28; // half-spread of bipod base, radians
-      const b1=[Rlander*Math.cos(theta-delta), 0, Rlander*Math.sin(theta-delta)];
-      const b2=[Rlander*Math.cos(theta+delta), 0, Rlander*Math.sin(theta+delta)];
-      struts.push({base:b1, apex, id:struts.length});
-      struts.push({base:b2, apex, id:struts.length});
+      const base=[Rlander*Math.cos(theta), 0, Rlander*Math.sin(theta)];
+      joints.push({id:i, theta, apex, base});
     }
-    return struts;
-  }
-  function singleStrutSet(n){
-    // n=4 or 7: build from 4-bipod(8) or drop one leg from a 6 config, for pedagogical variety
-    if(n===4){
-      const s=bipodStruts(2); // 2 bipods = 4 struts -> genuinely underconstrained (mechanism)
-      return s;
-    }
-    if(n===6) return bipodStruts(3);
-    if(n===8) return bipodStruts(4);
-    if(n===7){ const s=bipodStruts(4); s.pop(); return s; }
-    return bipodStruts(3);
+    return joints;
   }
 
-  const K_STRUT = 4.0e7; // N/m, ~steel 10mm rod, ~0.3m long, EA/L
-  const ROD_AREA = Math.PI*0.005*0.005; // m^2, 10mm dia rod
+  const K_TRANS = 4.0e7;   // N/m,  ~steel 10mm bolt/rod, ~0.3m grip, EA/L
+  const K_ROT   = 5.0e5;   // N*m/rad, representative bolted-flange bending stiffness
+  const ROD_AREA = Math.PI*0.005*0.005; // m^2, 10mm dia
   const ROVER_MASS = 1200; // kg
   const G_MOON = 1.62; // m/s^2
 
-  let struts = singleStrutSet(6);
+  let jointType = 'rigid'; // 'pin' | 'ball' | 'rigid'
+  let nJoints = 6;
+  let joints = buildJoints(nJoints);
   let removed = new Set();
-  let tolStrutIdx = 0;
+  let tolJoint = 0;
+  let tolAxis = 'vertical'; // 'vertical' | 'radial' | 'tangential'
 
-  function activeStruts(){ return struts.filter(s=>!removed.has(s.id)); }
+  function activeJoints(){ return joints.filter(j=>!removed.has(j.id)); }
 
-  function assemble(active){
-    const rows = active.map(s=>{
-      const a = unit(sub(s.apex, s.base));
-      const r = s.apex; // moment arm about rover-body origin (rover ring center)
+  function localFrame(theta){
+    const radial = [Math.cos(theta), 0, Math.sin(theta)];
+    const tangential = [-Math.sin(theta), 0, Math.cos(theta)];
+    const vertical = [0,1,0];
+    return {radial, tangential, vertical};
+  }
+
+  function axesForType(type){
+    if(type==='pin') return ['vertical'];
+    return ['vertical','radial','tangential']; // ball & rigid react full translation
+  }
+
+  // build reaction rows for one joint: {row:[6], kind:'force'|'moment', jointId, axis, kNominal}
+  function jointRows(j, type){
+    const {radial, tangential, vertical} = localFrame(j.theta);
+    const dirs = {radial, tangential, vertical};
+    const r = j.apex;
+    const rows=[];
+    axesForType(type).forEach(axisName=>{
+      const a = dirs[axisName];
       const m = cross(r,a);
-      return [a[0],a[1],a[2],m[0],m[1],m[2]];
+      rows.push({row:[a[0],a[1],a[2],m[0],m[1],m[2]], kind:'force', jointId:j.id, axis:axisName, kNominal:K_TRANS});
     });
+    if(type==='rigid'){
+      ['radial','tangential','vertical'].forEach(axisName=>{
+        const a=dirs[axisName];
+        rows.push({row:[0,0,0,a[0],a[1],a[2]], kind:'moment', jointId:j.id, axis:axisName, kNominal:K_ROT});
+      });
+    }
     return rows;
   }
 
-  function buildKg(rows){
+  function assemble(active, type){
+    let rows=[];
+    active.forEach(j=> rows=rows.concat(jointRows(j,type)));
+    return rows;
+  }
+
+  function buildKg(rowObjs, kOverride){
     const Kg = mat6();
-    for(const row of rows){
-      for(let i=0;i<6;i++) for(let j=0;j<6;j++) Kg[i][j]+=K_STRUT*row[i]*row[j];
-    }
+    rowObjs.forEach(ro=>{
+      const k = kOverride && kOverride(ro) !== null ? kOverride(ro) : ro.kNominal;
+      const row=ro.row;
+      for(let i=0;i<6;i++) for(let j2=0;j2<6;j2++) Kg[i][j2]+=k*row[i]*row[j2];
+    });
     return Kg;
   }
 
   function computeAll(){
-    const active = activeStruts();
-    const rows = assemble(active);
-    const Kg = buildKg(rows);
+    const active = activeJoints();
+    const rowObjs = assemble(active, jointType);
+    const nRows = rowObjs.length;
+    const compliance = parseFloat(document.getElementById('compliance').value)/100;
+
+    function kFor(ro){
+      if(ro.jointId===tolJoint && ro.axis===tolAxis && ro.kind==='force') return ro.kNominal*(1-compliance);
+      return null;
+    }
+    const Kg = buildKg(rowObjs, kFor);
 
     // classification
     let cls, badge;
-    if(active.length<6){ cls='UNDERCONSTRAINED — mechanism (free DOF exist)'; badge='bad'; }
+    if(active.length===0 || nRows<6){ cls='UNDERCONSTRAINED — mechanism (free DOF exist)'; badge='bad'; }
     else {
-      const testSolve = solve6(Kg, [0,0,-1,0,0,0]);
-      if(testSolve.singular){ cls='DEGENERATE — struts geometrically redundant, DOF still free'; badge='bad'; }
-      else if(active.length===6){ cls='EXACTLY CONSTRAINED — kinematic mount'; badge='good'; }
-      else { cls=`OVERCONSTRAINED — ${active.length-6} redundant load path${active.length-6>1?'s':''}`; badge='warn'; }
+      const testSolve = solve6(Kg, [0,-1,0,0,0,0]);
+      if(testSolve.singular){ cls='DEGENERATE — joints geometrically redundant, DOF still free'; badge='bad'; }
+      else if(nRows===6){ cls='EXACTLY CONSTRAINED — kinematic mount'; badge='good'; }
+      else { cls=`OVERCONSTRAINED — ${nRows-6} redundant reaction component${nRows-6>1?'s':''}`; badge='warn'; }
     }
 
-    // deflection under lunar-gravity wrench applied at rover CG (assume CG at rover ring center height H)
+    // deflection under lunar-gravity wrench applied at rover CG (rover ring center height H)
     const F = ROVER_MASS*G_MOON;
     const wrench = [0,-F,0,0,0,0];
     const defl = solve6(Kg, wrench);
     const translMag = defl.singular? NaN : norm([defl.u[0],defl.u[1],defl.u[2]]);
 
-    // tolerance mismatch
+    // tolerance mismatch: length error at the selected joint/axis (force-type row only)
     const tolMM = parseFloat(document.getElementById('tol').value);
     const tolM = tolMM/1000;
-    const delta = active.map((s,i)=> (s.id===tolStrutIdx)? tolM : 0);
-    // generalized misfit force vector: A^T * k * delta
+    const delta = rowObjs.map(ro => (ro.jointId===tolJoint && ro.axis===tolAxis && ro.kind==='force') ? tolM : 0);
     const Fdelta = new Array(6).fill(0);
-    rows.forEach((row,i)=>{ for(let c=0;c<6;c++) Fdelta[c]+=K_STRUT*row[c]*delta[i]; });
+    rowObjs.forEach((ro,i)=>{
+      const k = kFor(ro) !== null ? kFor(ro) : ro.kNominal;
+      for(let c=0;c<6;c++) Fdelta[c]+=k*ro.row[c]*delta[i];
+    });
     const uDelta = solve6(Kg, Fdelta);
-    let maxForce=0;
-    const forces = rows.map((row,i)=>{
+    let maxForce=0, maxMoment=0;
+    const forces = rowObjs.map((ro,i)=>{
+      const row=ro.row;
       const proj = row[0]*uDelta.u[0]+row[1]*uDelta.u[1]+row[2]*uDelta.u[2]+row[3]*uDelta.u[3]+row[4]*uDelta.u[4]+row[5]*uDelta.u[5];
-      const f = K_STRUT*(proj - delta[i]);
-      maxForce=Math.max(maxForce, Math.abs(f));
+      const k = kFor(ro) !== null ? kFor(ro) : ro.kNominal;
+      const f = k*(proj - delta[i]);
+      if(ro.kind==='force') maxForce=Math.max(maxForce, Math.abs(f));
+      else maxMoment=Math.max(maxMoment, Math.abs(f));
       return f;
     });
 
-    return {active, rows, cls, badge, translMag, maxForce, forces, kgSingular: defl.singular};
+    return {active, rowObjs, nRows, cls, badge, translMag, maxForce, maxMoment, forces, kgSingular: defl.singular};
   }
 
   // ---------- UI wiring ----------
   const tolSlider=document.getElementById('tol');
   const tolLabel=document.getElementById('tolval');
-  const strutSel=document.getElementById('strutSel');
-  function refreshStrutSelect(){
-    const active=activeStruts();
-    strutSel.innerHTML='';
-    active.forEach((s)=>{
+  const jointSel=document.getElementById('jointSel');
+  const axisSel=document.getElementById('axisSel');
+  const njointsSlider=document.getElementById('njoints');
+  const njointsLabel=document.getElementById('njointsval');
+  const complianceSlider=document.getElementById('compliance');
+  const complianceLabel=document.getElementById('compval');
+
+  function refreshSelects(){
+    const active=activeJoints();
+    jointSel.innerHTML='';
+    active.forEach(j=>{
       const opt=document.createElement('option');
-      opt.value=s.id; opt.textContent=`Strut #${s.id+1}`;
-      strutSel.appendChild(opt);
+      opt.value=j.id; opt.textContent=`Joint #${j.id+1}`;
+      jointSel.appendChild(opt);
     });
-    if(!active.find(s=>s.id===tolStrutIdx)) tolStrutIdx = active.length? active[0].id : 0;
-    strutSel.value=tolStrutIdx;
+    if(!active.find(j=>j.id===tolJoint)) tolJoint = active.length? active[0].id : 0;
+    jointSel.value=tolJoint;
+
+    const axes=axesForType(jointType);
+    axisSel.innerHTML='';
+    axes.forEach(ax=>{
+      const opt=document.createElement('option');
+      opt.value=ax; opt.textContent=ax[0].toUpperCase()+ax.slice(1);
+      axisSel.appendChild(opt);
+    });
+    if(!axes.includes(tolAxis)) tolAxis=axes[0];
+    axisSel.value=tolAxis;
   }
-  strutSel.addEventListener('change', ()=>{ tolStrutIdx=parseInt(strutSel.value); update(); });
+
+  jointSel.addEventListener('change', ()=>{ tolJoint=parseInt(jointSel.value); update(); });
+  axisSel.addEventListener('change', ()=>{ tolAxis=axisSel.value; update(); });
   tolSlider.addEventListener('input', ()=>{ tolLabel.textContent=parseFloat(tolSlider.value).toFixed(2)+' mm'; update(); });
+  complianceSlider.addEventListener('input', ()=>{ complianceLabel.textContent=complianceSlider.value+'%'; update(); });
+  njointsSlider.addEventListener('input', ()=>{
+    nJoints=parseInt(njointsSlider.value);
+    njointsLabel.textContent=nJoints;
+    joints=buildJoints(nJoints);
+    removed=new Set();
+    update();
+  });
 
   document.querySelectorAll('button.preset').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       document.querySelectorAll('button.preset').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
-      const n=parseInt(btn.dataset.n);
-      struts=singleStrutSet(n);
-      removed=new Set();
-      refreshStrutSelect();
+      jointType=btn.dataset.type;
       update();
     });
   });
 
   let lastResult=null;
   function update(){
-    refreshStrutSelect();
+    refreshSelects();
     const r=computeAll();
     lastResult=r;
     document.getElementById('classify').innerHTML =
       `<span class="badge ${r.badge}">${r.cls}</span>`;
+    document.getElementById('mRows').textContent = `${r.nRows} / 6`;
+    document.getElementById('mRedundant').textContent = Math.max(0, r.nRows-6);
     document.getElementById('mPreload').textContent = Math.round(r.maxForce)+' N';
+    document.getElementById('mMoment').textContent = Math.round(r.maxMoment)+' N·m';
     document.getElementById('mStress').textContent = (r.maxForce/ROD_AREA/1e6).toFixed(1)+' MPa';
     document.getElementById('mDefl').textContent = r.kgSingular ? 'unconstrained' : (r.translMag*1000).toFixed(3)+' mm';
-    document.getElementById('mPath').textContent = r.active.length<=6? 'statically determinate' : 'statically indeterminate';
+    document.getElementById('mPath').textContent = r.nRows<=6? 'statically determinate' : 'statically indeterminate';
     draw();
   }
 
@@ -358,20 +424,27 @@
     strokeRing(ringPts(Rlander,0), '#3a4a5c');
     strokeRing(ringPts(Rrover,H), '#5fd0ff55');
 
-    // struts sorted by depth (painter's algorithm)
+    // per-joint peak |force| among its own rows, for coloring
+    function peakForceForJoint(jid){
+      let m=0;
+      lastResult.rowObjs.forEach((ro,i)=>{
+        if(ro.jointId===jid && ro.kind==='force') m=Math.max(m, Math.abs(lastResult.forces[i]));
+      });
+      return m;
+    }
+
     const maxRef = Math.max(1, lastResult.maxForce);
-    const items = struts.map(s=>{
-      const isRemoved = removed.has(s.id);
-      const pB=project(s.base), pA=project(s.apex);
+    const items = joints.map(j=>{
+      const isRemoved = removed.has(j.id);
+      const pB=project(j.base), pA=project(j.apex);
       const depth=(pB.depth+pA.depth)/2;
-      const forceEntry = lastResult.active.findIndex(a=>a.id===s.id);
-      const f = forceEntry>=0? lastResult.forces[forceEntry] : 0;
-      return {s, pB, pA, depth, isRemoved, f};
+      const f = isRemoved? 0 : peakForceForJoint(j.id);
+      return {j, pB, pA, depth, isRemoved, f};
     }).sort((a,b)=>a.depth-b.depth);
 
     hitboxes=[];
     items.forEach(it=>{
-      const {s,pB,pA,isRemoved,f}=it;
+      const {j,pB,pA,isRemoved,f}=it;
       ctx.beginPath();
       ctx.moveTo(pB.x,pB.y); ctx.lineTo(pA.x,pA.y);
       if(isRemoved){
@@ -379,25 +452,24 @@
       } else {
         ctx.setLineDash([]);
         ctx.strokeStyle = colorForForce(f, maxRef);
-        ctx.lineWidth = s.id===tolStrutIdx ? 5 : 3.5;
+        ctx.lineWidth = j.id===tolJoint ? 6 : 4;
       }
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // endpoints
-      [pB,pA].forEach(p=>{
-        ctx.beginPath(); ctx.arc(p.x,p.y,4,0,7);
+      // endpoints — apex marker sized by reacted DOF count
+      const dofCount = isRemoved? 0 : (jointType==='pin'?1:jointType==='ball'?3:6);
+      [pB,pA].forEach((p,idx)=>{
+        ctx.beginPath(); ctx.arc(p.x,p.y, idx===1?5+dofCount*0.4:4, 0,7);
         ctx.fillStyle = isRemoved? '#2a3542' : '#e8eef5';
         ctx.fill();
       });
 
       const midx=(pB.x+pA.x)/2, midy=(pB.y+pA.y)/2;
-      hitboxes.push({id:s.id, x:midx, y:midy, isRemoved});
+      hitboxes.push({id:j.id, x:midx, y:midy, isRemoved});
 
-      if(s.id===tolStrutIdx && !isRemoved){
-        ctx.font='11px monospace'; ctx.fillStyle='#5fd0ff';
-        ctx.fillText('▲ tolerance strut', midx+8, midy-8);
-      }
+      ctx.font='11px monospace'; ctx.fillStyle= j.id===tolJoint? '#5fd0ff':'#8fa3b8';
+      ctx.fillText(`#${j.id+1}${j.id===tolJoint?' ▲':''}`, midx+8, midy-8);
     });
 
     // labels
