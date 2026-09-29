@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kinematic vs Overconstrained: The 6-Strut Rover Mount</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#121821; --panel2:#0f141b; --line:#243040;
+    --text:#e8eef5; --dim:#8fa3b8; --accent:#5fd0ff; --accent2:#ffb454;
+    --good:#4ade80; --warn:#facc15; --bad:#f87171;
+    --mono: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.5;}
+  header{padding:28px 24px 12px;max-width:1100px;margin:0 auto;}
+  h1{font-size:1.6rem;margin:0 0 6px;letter-spacing:-0.02em;}
+  h1 span{color:var(--accent);}
+  .sub{color:var(--dim);font-size:0.95rem;max-width:760px;}
+  .wrap{max-width:1100px;margin:0 auto;padding:0 24px 60px;}
+  .story{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:18px 0;font-size:0.92rem;color:#cdd8e3;}
+  .story b{color:var(--accent2);}
+  .layout{display:grid;grid-template-columns:1fr 320px;gap:18px;margin-top:20px;}
+  @media(max-width:860px){.layout{grid-template-columns:1fr;}}
+  .stage{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px;position:relative;}
+  canvas{display:block;width:100%;height:460px;border-radius:8px;cursor:grab;touch-action:none;}
+  canvas:active{cursor:grabbing;}
+  .hint{position:absolute;bottom:18px;left:22px;color:var(--dim);font-size:0.75rem;}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;}
+  .panel + .panel{margin-top:14px;}
+  .panel h3{margin:0 0 10px;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--dim);}
+  .presetrow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+  button.preset{flex:1;min-width:80px;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:10px 6px;border-radius:8px;cursor:pointer;font-size:0.82rem;font-weight:600;transition:.15s;}
+  button.preset:hover{border-color:var(--accent);}
+  button.preset.active{background:var(--accent);color:#04202b;border-color:var(--accent);}
+  label.small{font-size:0.78rem;color:var(--dim);display:block;margin:10px 0 4px;}
+  input[type=range]{width:100%;accent-color:var(--accent);}
+  select{width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:6px;font-size:0.82rem;}
+  .toggle{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:0.85rem;}
+  .metric{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-bottom:1px dashed var(--line);}
+  .metric:last-child{border-bottom:none;}
+  .metric .lbl{color:var(--dim);font-size:0.8rem;}
+  .metric .val{font-family:var(--mono);font-size:1rem;font-weight:600;}
+  .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:0.72rem;font-weight:700;letter-spacing:0.03em;text-transform:uppercase;}
+  .badge.good{background:rgba(74,222,128,.15);color:var(--good);}
+  .badge.warn{background:rgba(250,204,21,.15);color:var(--warn);}
+  .badge.bad{background:rgba(248,113,113,.15);color:var(--bad);}
+  .sandbox-note{font-size:0.78rem;color:var(--dim);margin-top:8px;}
+  .legend{display:flex;gap:14px;font-size:0.72rem;color:var(--dim);margin-top:8px;flex-wrap:wrap;}
+  .legend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px;}
+  footer{max-width:1100px;margin:0 auto;padding:10px 24px 40px;color:var(--dim);font-size:0.78rem;}
+  code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:0.85em;}
+</style>
+</head>
+<body>
+<header>
+  <h1>Kinematic vs Overconstrained: the <span>6-strut rover release mount</span></h1>
+  <div class="sub">Drag the model to orbit it. Click a strut to delete it, click empty space near a ring to add one back. The physics is real — the right panel solves an actual 6×6 stiffness system, not a canned animation.</div>
+</header>
+
+<div class="wrap">
+  <div class="story">
+    This is the mount problem behind the Starship↔rover 6-DOF release interface: JAXA wants more compliance margin, SpaceX wants fewer/simpler attach points. The instinct is <b>"add more struts, it'll be stiffer and safer."</b>
+    It isn't. A rigid body has exactly <b>6 degrees of freedom</b>. Six struts, each pulling along its own axis, can pin down exactly those 6 DOF with zero redundancy — a <b>kinematic (exactly-constrained) mount</b>. A 7th or 8th strut doesn't add stiffness once the body is already fully constrained; it adds a <b>redundant load path</b> that fights the other struts every time there's a thermal gradient or a tenth-of-a-millimeter manufacturing mismatch. Try the tolerance slider below and watch the preload appear out of nowhere on the 8-strut mount while the 6-strut mount stays at zero.
+  </div>
+
+  <div class="layout">
+    <div class="stage">
+      <canvas id="c" width="900" height="460"></canvas>
+      <div class="hint">drag = orbit · scroll = zoom · click strut = remove/add</div>
+    </div>
+
+    <div class="right">
+      <div class="panel">
+        <h3>Mount configuration</h3>
+        <div class="presetrow">
+          <button class="preset" data-n="4">4 struts</button>
+          <button class="preset active" data-n="6">6 struts</button>
+          <button class="preset" data-n="7">7 struts</button>
+          <button class="preset" data-n="8">8 struts</button>
+        </div>
+        <div id="classify"></div>
+        <div class="sandbox-note">Presets rebuild a fresh bipod layout. Click individual struts in the view to explore any combination — the classification updates live.</div>
+      </div>
+
+      <div class="panel">
+        <h3>Manufacturing mismatch</h3>
+        <label class="small">Length error on one strut: <span id="tolval">0.00 mm</span></label>
+        <input type="range" id="tol" min="0" max="2" step="0.02" value="0">
+        <label class="small">Which strut gets the error</label>
+        <select id="strutSel"></select>
+      </div>
+
+      <div class="panel">
+        <h3>Results (real numbers, not decoration)</h3>
+        <div class="metric"><span class="lbl">Peak self-induced preload</span><span class="val" id="mPreload">0 N</span></div>
+        <div class="metric"><span class="lbl">Peak strut stress (⌀10mm rod)</span><span class="val" id="mStress">0.0 MPa</span></div>
+        <div class="metric"><span class="lbl">Deflection under 1/6-g rover weight</span><span class="val" id="mDefl">— mm</span></div>
+        <div class="metric"><span class="lbl">Load path</span><span class="val" id="mPath">statically determinate</span></div>
+        <div class="legend">
+          <span><span class="sw" style="background:#4ade80"></span>near-zero force</span>
+          <span><span class="sw" style="background:#facc15"></span>moderate</span>
+          <span><span class="sw" style="background:#f87171"></span>high preload</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  Model: 3 (or 4) bipod clusters of axial struts between a lander ring and a rover ring. Each strut = one row of a 6×6 screw-theory constraint Jacobian [â, r̂×â]. Stiffness matrix K = AᵀdiagKᵢA solved directly (Gaussian elimination, no canned answers) for both an applied lunar-gravity wrench and an imposed length-error vector. Rover assumed 1200 kg, lunar g = 1.62 m/s², rod stiffness ≈ steel ⌀10 mm rod at typical strut length.
+</footer>
+
+<script>
+(function(){
+  // ---------- linear algebra ----------
+  function mat6(){return Array.from({length:6},()=>new Array(6).fill(0));}
+  function solve6(Ain,bin){
+    const n=6, A=Ain.map(r=>r.slice()), b=bin.slice();
+    let scale=0;
+    for(let i=0;i<n;i++) scale=Math.max(scale, Math.abs(Ain[i][i]));
+    const eps = Math.max(scale,1)*1e-9;
+    for(let col=0; col<n; col++){
+      let piv=col, best=Math.abs(A[col][col]);
+      for(let r=col+1;r<n;r++){ if(Math.abs(A[r][col])>best){best=Math.abs(A[r][col]); piv=r;} }
+      if(best<eps) return {u:new Array(n).fill(0), singular:true};
+      if(piv!==col){ [A[col],A[piv]]=[A[piv],A[col]]; [b[col],b[piv]]=[b[piv],b[col]]; }
+      for(let r=col+1;r<n;r++){
+        const f=A[r][col]/A[col][col];
+        for(let c=col;c<n;c++) A[r][c]-=f*A[col][c];
+        b[r]-=f*b[col];
+      }
+    }
+    const u=new Array(n).fill(0);
+    for(let r=n-1;r>=0;r--){
+      let s=b[r];
+      for(let c=r+1;c<n;c++) s-=A[r][c]*u[c];
+      u[r]=s/A[r][r];
+    }
+    return {u, singular:false, det: A.reduce((p,row,i)=>p*row[i],1)};
+  }
+  function sub(a,b){return [a[0]-b[0],a[1]-b[1],a[2]-b[2]];}
+  function add(a,b){return [a[0]+b[0],a[1]+b[1],a[2]+b[2]];}
+  function scl(a,s){return [a[0]*s,a[1]*s,a[2]*s];}
+  function dot(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
+  function cross(a,b){return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];}
+  function norm(a){return Math.sqrt(dot(a,a));}
+  function unit(a){const n=norm(a); return n<1e-9?[0,0,0]:scl(a,1/n);}
+
+  // ---------- geometry ----------
+  const Rrover=1.0, Rlander=1.25, H=1.0; // meters, arbitrary but physically-scaled
+  function bipodStruts(nBipods){
+    const struts=[];
+    for(let i=0;i<nBipods;i++){
+      const theta = (2*Math.PI*i)/nBipods;
+      const apex=[Rrover*Math.cos(theta), H, Rrover*Math.sin(theta)];
+      const delta = 0.28; // half-spread of bipod base, radians
+      const b1=[Rlander*Math.cos(theta-delta), 0, Rlander*Math.sin(theta-delta)];
+      const b2=[Rlander*Math.cos(theta+delta), 0, Rlander*Math.sin(theta+delta)];
+      struts.push({base:b1, apex, id:struts.length});
+      struts.push({base:b2, apex, id:struts.length});
+    }
+    return struts;
+  }
+  function singleStrutSet(n){
+    // n=4 or 7: build from 4-bipod(8) or drop one leg from a 6 config, for pedagogical variety
+    if(n===4){
+      const s=bipodStruts(2); // 2 bipods = 4 struts -> genuinely underconstrained (mechanism)
+      return s;
+    }
+    if(n===6) return bipodStruts(3);
+    if(n===8) return bipodStruts(4);
+    if(n===7){ const s=bipodStruts(4); s.pop(); return s; }
+    return bipodStruts(3);
+  }
+
+  const K_STRUT = 4.0e7; // N/m, ~steel 10mm rod, ~0.3m long, EA/L
+  const ROD_AREA = Math.PI*0.005*0.005; // m^2, 10mm dia rod
+  const ROVER_MASS = 1200; // kg
+  const G_MOON = 1.62; // m/s^2
+
+  let struts = singleStrutSet(6);
+  let removed = new Set();
+  let tolStrutIdx = 0;
+
+  function activeStruts(){ return struts.filter(s=>!removed.has(s.id)); }
+
+  function assemble(active){
+    const rows = active.map(s=>{
+      const a = unit(sub(s.apex, s.base));
+      const r = s.apex; // moment arm about rover-body origin (rover ring center)
+      const m = cross(r,a);
+      return [a[0],a[1],a[2],m[0],m[1],m[2]];
+    });
+    return rows;
+  }
+
+  function buildKg(rows){
+    const Kg = mat6();
+    for(const row of rows){
+      for(let i=0;i<6;i++) for(let j=0;j<6;j++) Kg[i][j]+=K_STRUT*row[i]*row[j];
+    }
+    return Kg;
+  }
+
+  function computeAll(){
+    const active = activeStruts();
+    const rows = assemble(active);
+    const Kg = buildKg(rows);
+
+    // classification
+    let cls, badge;
+    if(active.length<6){ cls='UNDERCONSTRAINED — mechanism (free DOF exist)'; badge='bad'; }
+    else {
+      const testSolve = solve6(Kg, [0,0,-1,0,0,0]);
+      if(testSolve.singular){ cls='DEGENERATE — struts geometrically redundant, DOF still free'; badge='bad'; }
+      else if(active.length===6){ cls='EXACTLY CONSTRAINED — kinematic mount'; badge='good'; }
+      else { cls=`OVERCONSTRAINED — ${active.length-6} redundant load path${active.length-6>1?'s':''}`; badge='warn'; }
+    }
+
+    // deflection under lunar-gravity wrench applied at rover CG (assume CG at rover ring center height H)
+    const F = ROVER_MASS*G_MOON;
+    const wrench = [0,-F,0,0,0,0];
+    const defl = solve6(Kg, wrench);
+    const translMag = defl.singular? NaN : norm([defl.u[0],defl.u[1],defl.u[2]]);
+
+    // tolerance mismatch
+    const tolMM = parseFloat(document.getElementById('tol').value);
+    const tolM = tolMM/1000;
+    const delta = active.map((s,i)=> (s.id===tolStrutIdx)? tolM : 0);
+    // generalized misfit force vector: A^T * k * delta
+    const Fdelta = new Array(6).fill(0);
+    rows.forEach((row,i)=>{ for(let c=0;c<6;c++) Fdelta[c]+=K_STRUT*row[c]*delta[i]; });
+    const uDelta = solve6(Kg, Fdelta);
+    let maxForce=0;
+    const forces = rows.map((row,i)=>{
+      const proj = row[0]*uDelta.u[0]+row[1]*uDelta.u[1]+row[2]*uDelta.u[2]+row[3]*uDelta.u[3]+row[4]*uDelta.u[4]+row[5]*uDelta.u[5];
+      const f = K_STRUT*(proj - delta[i]);
+      maxForce=Math.max(maxForce, Math.abs(f));
+      return f;
+    });
+
+    return {active, rows, cls, badge, translMag, maxForce, forces, kgSingular: defl.singular};
+  }
+
+  // ---------- UI wiring ----------
+  const tolSlider=document.getElementById('tol');
+  const tolLabel=document.getElementById('tolval');
+  const strutSel=document.getElementById('strutSel');
+  function refreshStrutSelect(){
+    const active=activeStruts();
+    strutSel.innerHTML='';
+    active.forEach((s)=>{
+      const opt=document.createElement('option');
+      opt.value=s.id; opt.textContent=`Strut #${s.id+1}`;
+      strutSel.appendChild(opt);
+    });
+    if(!active.find(s=>s.id===tolStrutIdx)) tolStrutIdx = active.length? active[0].id : 0;
+    strutSel.value=tolStrutIdx;
+  }
+  strutSel.addEventListener('change', ()=>{ tolStrutIdx=parseInt(strutSel.value); update(); });
+  tolSlider.addEventListener('input', ()=>{ tolLabel.textContent=parseFloat(tolSlider.value).toFixed(2)+' mm'; update(); });
+
+  document.querySelectorAll('button.preset').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('button.preset').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      const n=parseInt(btn.dataset.n);
+      struts=singleStrutSet(n);
+      removed=new Set();
+      refreshStrutSelect();
+      update();
+    });
+  });
+
+  let lastResult=null;
+  function update(){
+    refreshStrutSelect();
+    const r=computeAll();
+    lastResult=r;
+    document.getElementById('classify').innerHTML =
+      `<span class="badge ${r.badge}">${r.cls}</span>`;
+    document.getElementById('mPreload').textContent = Math.round(r.maxForce)+' N';
+    document.getElementById('mStress').textContent = (r.maxForce/ROD_AREA/1e6).toFixed(1)+' MPa';
+    document.getElementById('mDefl').textContent = r.kgSingular ? 'unconstrained' : (r.translMag*1000).toFixed(3)+' mm';
+    document.getElementById('mPath').textContent = r.active.length<=6? 'statically determinate' : 'statically indeterminate';
+    draw();
+  }
+
+  // ---------- 3D-ish rendering (manual projection, orbit by drag) ----------
+  const canvas=document.getElementById('c');
+  const ctx=canvas.getContext('2d');
+  let W=canvas.width, H2=canvas.height;
+  function resize(){
+    const rect=canvas.getBoundingClientRect();
+    const ratio=window.devicePixelRatio||1;
+    canvas.width=rect.width*ratio; canvas.height=460*ratio;
+    ctx.setTransform(ratio,0,0,ratio,0,0);
+    W=rect.width; H2=460;
+  }
+  window.addEventListener('resize', ()=>{resize(); draw();});
+
+  let camYaw=0.6, camPitch=0.35, camZoom=1.9;
+  let dragging=false, lastX=0, lastY=0;
+  canvas.addEventListener('pointerdown', e=>{dragging=true; lastX=e.clientX; lastY=e.clientY; canvas.setPointerCapture(e.pointerId);});
+  canvas.addEventListener('pointerup', ()=>dragging=false);
+  canvas.addEventListener('pointermove', e=>{
+    if(!dragging) return;
+    camYaw += (e.clientX-lastX)*0.008;
+    camPitch = Math.max(-1.4, Math.min(1.4, camPitch + (e.clientY-lastY)*0.008));
+    lastX=e.clientX; lastY=e.clientY;
+    draw();
+  });
+  canvas.addEventListener('wheel', e=>{
+    e.preventDefault();
+    camZoom = Math.max(0.5, Math.min(2.5, camZoom + (e.deltaY>0? -0.08:0.08)));
+    draw();
+  }, {passive:false});
+
+  function project(p){
+    // rotate around Y (yaw) then X (pitch)
+    let [x,y,z]=p;
+    let cx=x*Math.cos(camYaw)-z*Math.sin(camYaw);
+    let cz=x*Math.sin(camYaw)+z*Math.cos(camYaw);
+    let cy=y*Math.cos(camPitch)-cz*Math.sin(camPitch);
+    cz=y*Math.sin(camPitch)+cz*Math.cos(camPitch);
+    const dist=4.5;
+    const scale = (W*0.32*camZoom) / (dist - cz*0.5);
+    return { x: W/2 + cx*scale, y: H2*0.62 - cy*scale, depth: cz };
+  }
+
+  let hitboxes=[]; // for click detection: {id, x1,y1,x2,y2 mid, active}
+
+  function colorForForce(f, maxRef){
+    const t = Math.min(1, Math.abs(f)/Math.max(maxRef,1));
+    if(t<0.15) return '#4ade80';
+    if(t<0.5) return '#facc15';
+    return '#f87171';
+  }
+
+  function draw(){
+    if(!lastResult) return;
+    ctx.clearRect(0,0,W,H2);
+    ctx.fillStyle='#0b0f14';
+    ctx.fillRect(0,0,W,H2);
+
+    // ground ring (lander) + rover ring, drawn as circles
+    function ringPts(R,y,n=64){
+      const pts=[];
+      for(let i=0;i<=n;i++){ const a=2*Math.PI*i/n; pts.push([R*Math.cos(a),y,R*Math.sin(a)]); }
+      return pts;
+    }
+    function strokeRing(pts, color){
+      ctx.beginPath();
+      pts.forEach((p,i)=>{ const s=project(p); if(i===0) ctx.moveTo(s.x,s.y); else ctx.lineTo(s.x,s.y); });
+      ctx.strokeStyle=color; ctx.lineWidth=1.4; ctx.stroke();
+    }
+    strokeRing(ringPts(Rlander,0), '#3a4a5c');
+    strokeRing(ringPts(Rrover,H), '#5fd0ff55');
+
+    // struts sorted by depth (painter's algorithm)
+    const maxRef = Math.max(1, lastResult.maxForce);
+    const items = struts.map(s=>{
+      const isRemoved = removed.has(s.id);
+      const pB=project(s.base), pA=project(s.apex);
+      const depth=(pB.depth+pA.depth)/2;
+      const forceEntry = lastResult.active.findIndex(a=>a.id===s.id);
+      const f = forceEntry>=0? lastResult.forces[forceEntry] : 0;
+      return {s, pB, pA, depth, isRemoved, f};
+    }).sort((a,b)=>a.depth-b.depth);
+
+    hitboxes=[];
+    items.forEach(it=>{
+      const {s,pB,pA,isRemoved,f}=it;
+      ctx.beginPath();
+      ctx.moveTo(pB.x,pB.y); ctx.lineTo(pA.x,pA.y);
+      if(isRemoved){
+        ctx.strokeStyle='#2a3542'; ctx.setLineDash([6,5]); ctx.lineWidth=2.5;
+      } else {
+        ctx.setLineDash([]);
+        ctx.strokeStyle = colorForForce(f, maxRef);
+        ctx.lineWidth = s.id===tolStrutIdx ? 5 : 3.5;
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // endpoints
+      [pB,pA].forEach(p=>{
+        ctx.beginPath(); ctx.arc(p.x,p.y,4,0,7);
+        ctx.fillStyle = isRemoved? '#2a3542' : '#e8eef5';
+        ctx.fill();
+      });
+
+      const midx=(pB.x+pA.x)/2, midy=(pB.y+pA.y)/2;
+      hitboxes.push({id:s.id, x:midx, y:midy, isRemoved});
+
+      if(s.id===tolStrutIdx && !isRemoved){
+        ctx.font='11px monospace'; ctx.fillStyle='#5fd0ff';
+        ctx.fillText('▲ tolerance strut', midx+8, midy-8);
+      }
+    });
+
+    // labels
+    ctx.font='12px -apple-system,sans-serif'; ctx.fillStyle='#8fa3b8';
+    const laP=project([0,H+0.28,0]); ctx.fillText('ROVER (rigid body)', laP.x-55, laP.y);
+    const laL=project([0,-0.22,0]); ctx.fillText('LANDER (fixed)', laL.x-45, laL.y);
+  }
+
+  canvas.addEventListener('click', e=>{
+    const rect=canvas.getBoundingClientRect();
+    const mx=e.clientX-rect.left, my=e.clientY-rect.top;
+    let best=null, bestD=22;
+    hitboxes.forEach(h=>{
+      const d=Math.hypot(h.x-mx,h.y-my);
+      if(d<bestD){ bestD=d; best=h; }
+    });
+    if(best){
+      if(best.isRemoved) removed.delete(best.id); else removed.add(best.id);
+      update();
+    }
+  });
+
+  resize();
+  update();
+})();
+</script>
+</body>
+</html>
